@@ -34,27 +34,41 @@ A small usage example
 */
 package gate
 
-import "net/http"
+import (
+	"net/http"
+)
+
+type Gate struct {
+	limitC chan struct{}
+}
+
+func New(limit int) *Gate {
+	return &Gate{
+		limitC: make(chan struct{}, limit),
+	}
+}
 
 // BlockedHandler is the handler that is used when n < 1
 var BlockedHandler = http.NotFoundHandler()
 
-// Handler takes a http.Handler and limit number
-func Handler(h http.Handler, n int) http.Handler {
-	if n < 1 {
-		return BlockedHandler
-	}
-
-	c := make(chan struct{}, n)
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() { <-c }()
-		c <- struct{}{}
-		h.ServeHTTP(w, r)
-	})
+// Handler takes a http.Handler, limit number
+func Handler(h http.Handler, limit int) http.Handler {
+	return New(limit).Handler(h)
 }
 
 // HandlerFunc takes a http.HandlerFunc and limit number
-func HandlerFunc(h http.HandlerFunc, n int) http.Handler {
-	return Handler(h, n)
+func HandlerFunc(h http.HandlerFunc, limit int) http.Handler {
+	return Handler(h, limit)
+}
+
+func (g *Gate) Handler(h http.Handler) http.Handler {
+	if cap(g.limitC) < 1 {
+		return BlockedHandler
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() { <-g.limitC }()
+		g.limitC <- struct{}{}
+		h.ServeHTTP(w, r)
+	})
 }

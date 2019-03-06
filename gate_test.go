@@ -26,13 +26,56 @@ var testCases = []struct {
 }
 
 func TestHandler(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+
+	gh := Handler(h, 1)
+
+	ts := httptest.NewServer(gh)
+	defer ts.Close()
+
+	r, err := http.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if got, want := r.StatusCode, http.StatusTeapot; got != want {
+		t.Fatalf("r.StatusCode = %d, want %d", got, want)
+	}
+}
+
+func TestHandlerFunc(t *testing.T) {
+	for i, tt := range testCases {
+		h := func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(tt.body))
+		}
+
+		gh := HandlerFunc(h, tt.n)
+
+		r, _ := http.NewRequest("GET", "", nil)
+		w := httptest.NewRecorder()
+
+		gh.ServeHTTP(w, r)
+
+		if got, want := w.Code, tt.code; got != want {
+			t.Fatalf("[%d] w.Code = %d, want %d", i, got, want)
+		}
+
+		if got, want := w.Body.String(), tt.want; got != want {
+			t.Fatalf("[%d] w.Body.String = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestGate_Handler(t *testing.T) {
 	for i, tt := range testCases {
 		h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(50 * time.Millisecond)
 			w.Write([]byte(tt.body))
 		})
 
-		gh := Handler(h, tt.n)
+		gh := New(tt.n).Handler(h)
 
 		ts := httptest.NewServer(gh)
 		defer ts.Close()
@@ -64,29 +107,6 @@ func TestHandler(t *testing.T) {
 
 		if elapsed < tt.min {
 			t.Errorf("[%d] elapsed: %v, want %v", i, elapsed, tt.min)
-		}
-	}
-}
-
-func TestHandlerFunc(t *testing.T) {
-	for i, tt := range testCases {
-		h := func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(tt.body))
-		}
-
-		gh := HandlerFunc(h, tt.n)
-
-		r, _ := http.NewRequest("GET", "", nil)
-		w := httptest.NewRecorder()
-
-		gh.ServeHTTP(w, r)
-
-		if got, want := w.Code, tt.code; got != want {
-			t.Fatalf("[%d] w.Code = %d, want %d", i, got, want)
-		}
-
-		if got, want := w.Body.String(), tt.want; got != want {
-			t.Fatalf("[%d] w.Body.String = %q, want %q", i, got, want)
 		}
 	}
 }
