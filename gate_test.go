@@ -75,7 +75,7 @@ func TestGate_Handler(t *testing.T) {
 			w.Write([]byte(tt.body))
 		})
 
-		gh := New(tt.n).Handler(h)
+		gh := New(tt.n, 0).Handler(h)
 
 		ts := httptest.NewServer(gh)
 		defer ts.Close()
@@ -108,5 +108,53 @@ func TestGate_Handler(t *testing.T) {
 		if elapsed < tt.min {
 			t.Errorf("[%d] elapsed: %v, want %v", i, elapsed, tt.min)
 		}
+	}
+}
+
+func TestWaiting(t *testing.T) {
+	g := New(1, 3)
+
+	for i := 0; i < 3; i++ {
+		g.waitC <- struct{}{}
+	}
+
+	if got, want := g.Waiting(), 3; got != want {
+		t.Errorf("got %d, want %d", got, want)
+	}
+}
+
+func TestWaitLimit(t *testing.T) {
+	g := New(1, 5)
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	reqCount := 10
+
+	respStatuses := make(chan int, reqCount)
+
+	for n := 0; n < reqCount; n++ {
+		go func() {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+			g.Handler(h).ServeHTTP(w, req)
+
+			respStatuses <- w.Code
+		}()
+	}
+
+	var declinedCount int
+
+	for n := 0; n < reqCount; n++ {
+		code := <-respStatuses
+		if code == http.StatusTooManyRequests {
+			declinedCount++
+		}
+	}
+
+	if got, want := declinedCount, 4; got != want {
+		t.Errorf("got %d declined requests, want %d", got, want)
 	}
 }

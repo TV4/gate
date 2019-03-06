@@ -40,11 +40,13 @@ import (
 
 type Gate struct {
 	limitC chan struct{}
+	waitC  chan struct{}
 }
 
-func New(limit int) *Gate {
+func New(limit, waitLimit int) *Gate {
 	return &Gate{
 		limitC: make(chan struct{}, limit),
+		waitC:  make(chan struct{}, waitLimit),
 	}
 }
 
@@ -53,7 +55,7 @@ var BlockedHandler = http.NotFoundHandler()
 
 // Handler takes a http.Handler, limit number
 func Handler(h http.Handler, limit int) http.Handler {
-	return New(limit).Handler(h)
+	return New(limit, 0).Handler(h)
 }
 
 // HandlerFunc takes a http.HandlerFunc and limit number
@@ -67,8 +69,25 @@ func (g *Gate) Handler(h http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cap(g.waitC) > 0 {
+			select {
+			case g.waitC <- struct{}{}:
+			default:
+				http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+				return
+			}
+			g.limitC <- struct{}{}
+			<-g.waitC
+		} else {
+			g.limitC <- struct{}{}
+		}
 		defer func() { <-g.limitC }()
-		g.limitC <- struct{}{}
+
 		h.ServeHTTP(w, r)
 	})
+}
+
+// Waiting returns the number of requests waiting at the gate
+func (g *Gate) Waiting() int {
+	return len(g.waitC)
 }
