@@ -3,7 +3,5 @@ language: go
 go:
   - "1.10"
 
-sudo: false
-
 script:
   - go test ./...
