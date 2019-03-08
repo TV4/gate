@@ -69,6 +69,7 @@ func (g *Gate) Handler(h http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1
 		if cap(g.waitC) > 0 {
 			select {
 			case g.waitC <- struct{}{}:
@@ -84,6 +85,31 @@ func (g *Gate) Handler(h http.Handler) http.Handler {
 		defer func() { <-g.limitC }()
 
 		h.ServeHTTP(w, r)
+
+		// 2
+		// select {
+		// case g.limitC <- struct{}{}:
+		// 	h.ServeHTTP(w, r)
+		// 	<-g.limitC
+		// case g.waitC <- struct{}{}:
+		// 	h.ServeHTTP(w, r)
+		// 	<-g.waitC
+		// default:
+		// 	http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		// }
+
+		// 3
+		// select {
+		// case g.limitC <- struct{}{}:
+		// 	defer func() { <-g.limitC }()
+		// case g.waitC <- struct{}{}:
+		// 	defer func() { <-g.waitC }()
+		// default:
+		// 	http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		// 	return
+		// }
+
+		// h.ServeHTTP(w, r)
 	})
 }
 
